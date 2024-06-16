@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Player with Camera Recording</title>
+    <style>
+        #recorded-video {
+            display: none;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="video-container">
+        <!-- Replace 'VIDEO_ID' with the actual YouTube video ID -->
+        <iframe id="youtube-video" width="560" height="315" src="https://www.youtube.com/embed/VIDEO_ID?enablejsapi=1" frameborder="0" allowfullscreen></iframe>
+    </div>
+    <div id="recording-status">Recording status: Not started</div>
+    <video id="recorded-video" controls></video>
+    <script>
+        let player;
+        let mediaRecorder;
+        let recordedChunks = [];
+        let cameraStream;
+        const videoId = 'iFkXwNi6JpA';  // Replace 'VIDEO_ID' with the actual video ID
+
+        window.onYouTubeIframeAPIReady = function() {
+            console.log("YouTube IFrame API is ready");
+            createPlayer();
+        }
+
+        function createPlayer() {
+            console.log("Creating YouTube player...");
+            try {
+                player = new YT.Player('youtube-video', {
+                    events: {
+                        'onReady': onPlayerReady,
+                        'onStateChange': onPlayerStateChange,
+                        'onError': onPlayerError
+                    }
+                });
+                console.log("Player created:", player);
+            } catch (error) {
+                console.error("Error creating player:", error);
+            }
+        }
+
+        function onPlayerReady(event) {
+            console.log("YouTube Player is ready", event);
+            console.log("Player getPlayerState:", player.getPlayerState());
+            console.log("Player video data:", player.getVideoData());
+
+            // Force initialization by loading video information
+            setTimeout(() => {
+                try {
+                    console.log("Attempting to load video ID:", videoId);
+                    player.loadVideoById(videoId);
+                    console.log("Video ID loaded:", videoId);
+                    requestFullscreen();
+                } catch (e) {
+                    console.error("Error loading video by ID:", e);
+                }
+            }, 2000); // 2 seconds delay
+        }
+
+        function requestFullscreen() {
+            const container = document.getElementById('video-container');
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else if (container.mozRequestFullScreen) { // Firefox
+                container.mozRequestFullScreen();
+            } else if (container.webkitRequestFullscreen) { // Chrome, Safari and Opera
+                container.webkitRequestFullscreen();
+            } else if (container.msRequestFullscreen) { // IE/Edge
+                container.msRequestFullscreen();
+            }
+        }
+
+        function onPlayerStateChange(event) {
+            console.log("YouTube player state changed:", event);
+            console.log("YouTube player state data:", event.data);
+            switch(event.data) {
+                case YT.PlayerState.ENDED:
+                    console.log("Video ended");
+                    stopRecording();
+                    break;
+                case YT.PlayerState.PLAYING:
+                    console.log("Video playing");
+                    requestCameraPermission();
+                    break;
+                case YT.PlayerState.PAUSED:
+                    console.log("Video paused");
+                    break;
+                case YT.PlayerState.BUFFERING:
+                    console.log("Video buffering");
+                    break;
+                case YT.PlayerState.CUED:
+                    console.log("Video cued");
+                    break;
+                default:
+                    console.log("Unknown state");
+                    break;
+            }
+        }
+
+        function onPlayerError(event) {
+            console.error("YouTube player error:", event.data);
+            switch(event.data) {
+                case 2:
+                    console.error("Invalid parameter value.");
+                    break;
+                case 5:
+                    console.error("HTML5 player error.");
+                    break;
+                case 100:
+                    console.error("Video not found.");
+                    break;
+                case 101:
+                case 150:
+                    console.error("Video not playable in embedded player.");
+                    break;
+                default:
+                    console.error("Unknown error.");
+                    break;
+            }
+        }
+
+        async function requestCameraPermission() {
+            try {
+                console.log("Requesting camera permission");
+                cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                console.log("Camera permission granted");
+                startRecording(cameraStream);
+            } catch (err) {
+                console.error("Error accessing the camera: ", err);
+                document.getElementById('recording-status').innerText = "Error accessing the camera";
+            }
+        }
+
+        function startRecording(stream) {
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = handleDataAvailable;
+            mediaRecorder.onstart = () => {
+                document.getElementById('recording-status').innerText = "Recording status: Started";
+                console.log("Recording started");
+            };
+            mediaRecorder.start();
+        }
+
+        function handleDataAvailable(event) {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+                console.log("Data available:", event.data);
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                console.log("Stopping recording");
+                mediaRecorder.stop();
+                mediaRecorder.onstop = async (event) => {
+                    console.log("Recording stopped");
+                    document.getElementById('recording-status').innerText = "Recording status: Stopped";
+                    const blob = new Blob(recordedChunks, { type: "video/webm" });
+
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.style.display = "none";
+                    a.href = url;
+                    a.download = "recording.webm";
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                    }, 100);
+
+                    const recordedVideo = document.getElementById('recorded-video');
+                    recordedVideo.src = url;
+                    recordedVideo.style.display = 'block';
+
+                    // Stop all tracks to release the camera
+                    cameraStream.getTracks().forEach(track => track.stop());
+                };
+            }
+        }
+
+        (function loadYouTubeAPI() {
+            console.log("Loading YouTube IFrame API");
+            const script = document.createElement('script');
+            script.src = "https://www.youtube.com/iframe_api";
+            script.onload = function() {
+                console.log("YouTube IFrame API script loaded");
+            };
+            script.onerror = function(error) {
+                console.error("Error loading YouTube IFrame API script:", error);
+            };
+            document.head.appendChild(script);
+        })();
+    </script>
+</body>
+</html>
